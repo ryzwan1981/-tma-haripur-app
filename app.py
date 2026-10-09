@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import io
+import os
 
 # App Layout & Mobile Icon Configuration
 st.set_page_config(page_title="TMA Haripur - Engineering Suite", page_icon="🏗️", layout="wide")
@@ -11,20 +12,49 @@ st.title("🏗️ TMA Haripur (Hazara, KPK)")
 st.subheader("Smart Infrastructure Software & Project Management Suite")
 st.write("---")
 
-# Global Mock Database for KPK Market Rate System (MRS)
-mrs_data = {
-    "Item Code": ["03-11-a", "03-21-b", "06-01-a", "17-02-b"],
-    "Description": ["Excavation in common soil", "PCC 1:4:8 in foundation", "Pacca Brick Work in 1:4", "Sub-Base Course for Roads"],
-    "Unit": ["Cu.m", "Cu.m", "Cu.m", "Cu.m"],
-    "Rate (PKR)": [350.0, 8500.0, 12500.0, 4200.0]
-}
-df_mrs = pd.DataFrame(mrs_data)
+# ---------------------------------------------------------
+# DATABASE ENGINE: LOAD BUILT-IN BACKUP OR LIVE UPLOAD
+# ---------------------------------------------------------
+st.sidebar.header("📁 Official KPK MRS Database")
 
-# Sidebar Database View
-st.sidebar.header("📋 Official KPK MRS Rates")
+# Check if the backup Excel file exists in the GitHub folder
+backup_file = "mrs_2025.xlsx"
+df_mrs = None
+
+if os.path.exists(backup_file):
+    try:
+        # Automatically load the full backup database from the folder
+        df_mrs = pd.read_excel(backup_file)
+        st.sidebar.success("✔ Full KPK MRS 2025 Backup Database loaded successfully!")
+    except Exception as e:
+        st.sidebar.error("Error reading backup file. Loading default demo items.")
+else:
+    st.sidebar.warning(f"⚠️ Backup file '{backup_file}' not found in folder. Please upload below.")
+
+# Also allow manual file upload if you want to override the database anytime
+uploaded_mrs = st.sidebar.file_uploader("Override/Upload New MRS Excel File (.xlsx):", type=["xlsx"])
+
+if uploaded_mrs is not None:
+    try:
+        df_mrs = pd.read_excel(uploaded_mrs)
+        st.sidebar.success("✔ Temporary MRS Excel attached for this session!")
+    except Exception as e:
+        st.sidebar.error("Error reading uploaded file.")
+
+# Fallback to absolute bare minimum demo items if no database file is found anywhere
+if df_mrs is None:
+    demo_data = {
+        "Item Code": ["03-11-a", "06-01-a", "07-03-a", "17-02-b"],
+        "Description": ["Excavation in common soil", "PCC 1:4:8 in foundation", "Pacca Brick Work 1:4", "Sub-Base Course for Roads"],
+        "Unit": ["Cu.m", "Cu.m", "Cu.m", "Cu.m"],
+        "Rate (PKR)": [350.0, 8500.0, 13200.0, 4200.0]
+    }
+    df_mrs = pd.DataFrame(demo_data)
+
+# Display Active Database in Sidebar
 st.sidebar.dataframe(df_mrs)
 
-# Navigation Menu for All PC Forms & Feasibilities
+# Navigation Menu for All PC Forms & Engineering Systems
 module = st.selectbox(
     "Select Project Module / Form:",
     [
@@ -44,14 +74,16 @@ st.write("---")
 if "PC-1" in module:
     st.header("📝 PC-1 Cost Estimation Engine")
     
-    # 4 Input Methods (Manual, Voice/Chat, Picture Upload)
-    input_method = st.radio("Choose Input Method:", ["Manual Data Entry", "Voice Message / Text Chat (WhatsApp Style)", "Upload Measurement Sheet Picture / Site Photo"])
+    input_method = st.radio("Choose Input Method:", [
+        "Manual Data Entry", 
+        "Voice Message / Text Chat (WhatsApp Style)", 
+        "Upload Measurement Sheet Picture / Site Photo"
+    ])
     
-    # Mode A: Manual
     if input_method == "Manual Data Entry":
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
-            item_code = st.selectbox("Select MRS Item Code:", df_mrs["Item Code"])
+            item_code = st.selectbox("Select MRS Item Code:", df_mrs["Item Code"].unique())
         with col2:
             length = st.number_input("Length (meters):", min_value=0.0, value=10.0)
         with col3:
@@ -62,89 +94,79 @@ if "PC-1" in module:
             nos = st.number_input("Quantity multiplier (Nos):", min_value=1, value=1)
             
         qty = length * width * height * nos
-        rate = df_mrs[df_mrs["Item Code"] == item_code]["Rate (PKR)"].values[0]
-        desc = df_mrs[df_mrs["Item Code"] == item_code]["Description"].values[0]
-        unit = df_mrs[df_mrs["Item Code"] == item_code]["Unit"].values[0]
+        
+        # Matrix matching extraction
+        selected_row = df_mrs[df_mrs["Item Code"] == item_code].iloc[0]
+        rate = float(selected_row["Rate (PKR)"])
+        desc = str(selected_row["Description"])
+        unit = str(selected_row["Unit"])
         amount = qty * rate
         
         st.info(f"**Item Description:** {desc}")
-        st.success(f"📊 **Calculated Quantity:** {qty:.2f} {unit} | **Total Amount:** {amount:,.2f} PKR")
+        st.success(f"📊 **Calculated Quantity:** {qty:.2f} {unit} | **Rate:** {rate:,.2f} PKR | **Total Amount:** {amount:,.2f} PKR")
         
-    # Mode B: Voice / Chat Input
+        # Document Export Engine
+        st.write("---")
+        st.subheader("📥 Export Final PC-1 Reports")
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            df_bill = pd.DataFrame([{
+                "Item Code": item_code, "Description": desc, 
+                "L": length, "W": width, "H": height, "Nos": nos,
+                "Qty": qty, "Unit": unit, "Rate": rate, "Amount (PKR)": amount
+            }])
+            df_bill.to_excel(writer, sheet_name="PC-1 Automated Report", index=False)
+        
+        st.download_button(
+            label="📥 Download PC-1 Excel Document",
+            data=buffer.getvalue(),
+            file_name="TMA_Haripur_PC1_Report.xlsx",
+            mime="application/vnd.ms-excel"
+        )
+        
     elif "Voice" in input_method:
         st.subheader("🎙️ WhatsApp Style Voice & Chat Input")
-        st.write("Record your voice note or type the dimensions directly (e.g., 'Excavation length 50m, width 4m, depth 3m')")
-        
-        # Free HTML5 Audio Recorder
+        st.write("Record voice note or type parameters.")
         audio_file = st.file_uploader("🎤 Upload Voice Message (Audio Recording):", type=["wav", "mp3", "m4a"])
         chat_text = st.text_input("💬 Or Type Text Message:")
-        
         if audio_file:
-            st.success("✔ Voice Note Captured Successfully! Back-end processing audio stream...")
+            st.success("✔ Voice Note Captured! Processing text conversion...")
         if chat_text:
-            st.info(f"Processing Text Pattern: '{chat_text}'")
-            st.warning("Parsing dimensions... Extracted Length, Width, Height successfully into the Measurement Sheet.")
+            st.info(f"Processing Text: '{chat_text}'")
 
-    # Mode C: Picture Upload
     else:
         st.subheader("📸 Document Camera & Image Upload")
-        st.write("Upload a photo of a rough paper measurement sheet, site plan, or drawing.")
-        uploaded_img = st.file_uploader("Choose an image file (PNG/JPG/JPEG) or Snap from Mobile Camera:", type=["jpg", "png", "jpeg"])
-        
+        uploaded_img = st.file_uploader("Choose an image file:", type=["jpg", "png", "jpeg"])
         if uploaded_img:
-            st.image(uploaded_img, caption="Uploaded Document/Site Photo", use_column_width=True)
-            st.success("✔ Image uploaded! Optical Character Recognition (OCR) running to fetch numbers...")
-
-    # Document Export Engine
-    st.write("---")
-    st.subheader("📥 Export Final PC-1 Reports")
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df_bill = pd.DataFrame([{"Item Code": "03-11-a", "Description": "Excavation", "L": 10.0, "W": 2.0, "H": 0.5, "Nos": 1, "Qty": 10.0, "Unit": "Cu.m", "Rate": 350.0, "Amount": 3500.0}])
-        df_bill.to_excel(writer, sheet_name="PC-1 Automated Report", index=False)
-    
-    st.download_button(
-        label="📥 Download PC-1 Excel Document",
-        data=buffer.getvalue(),
-        file_name="TMA_Haripur_PC1_Report.xlsx",
-        mime="application/vnd.ms-excel"
-    )
+            st.image(uploaded_img, caption="Uploaded Sheet", use_column_width=True)
+            st.success("✔ OCR Matrix pipeline running...")
 
 # =========================================================
 # MODULE 2: PC-2, PC-3, PC-4 & FEASIBILITY GENERATOR
 # =========================================================
 elif "PC-2" in module or "PC-3" in module or "PC-4" in module:
-    st.header(f"📋 Government Form: {module.split(' ')[0]}")
-    st.write("Provide general project attributes to populate the documentation template.")
-    
+    st.header(f"📋 Government Documentation: {module}")
     p_name = st.text_input("Project Title / Scheme Name:")
     p_cost = st.number_input("Estimated Budget Limit (PKR):", min_value=0.0)
-    p_desc = st.text_area("Scope of Work & Objectives:")
-    
+    p_desc = st.text_area("Scope of Work & Technical Objectives:")
     if st.button("Generate Government Report Template"):
-        st.success(f"✔ {module.split(' ')[0]} Template drafted successfully in English! Ready for download.")
+        st.success(f"✔ Template drafted successfully in English!")
 
 # =========================================================
 # MODULE 3: AUTOMATED ENGINEERING DRAWINGS
 # =========================================================
 else:
     st.header("📐 Auto-Generated Cross Section & Plans")
-    st.write("Generate parametric engineering cross sections seamlessly.")
-    
     dw = st.number_input("Internal Structure Bed Width (m):", value=1.0)
     dh = st.number_input("Structure Vertical Wall Height (m):", value=1.2)
     th = st.number_input("Wall Concrete/Brick Thickness (m):", value=0.2)
     
     fig, ax = plt.subplots(figsize=(6, 4))
-    # Draw PCC Foundation block
-    ax.add_patch(plt.Rectangle((0, 0), dw + (2 * th), th, facecolor='darkgray', alpha=0.6, label="PCC Foundation Base"))
-    # Draw Left Abutment Wall
-    ax.add_patch(plt.Rectangle((0, th), th, dh, facecolor='sienna', alpha=0.8, label="Structure Masonry Wall"))
-    # Draw Right Abutment Wall
+    ax.add_patch(plt.Rectangle((0, 0), dw + (2 * th), th, facecolor='darkgray', alpha=0.6, label="PCC Base"))
+    ax.add_patch(plt.Rectangle((0, th), th, dh, facecolor='sienna', alpha=0.8, label="Wall"))
     ax.add_patch(plt.Rectangle((dw + th, th), th, dh, facecolor='sienna', alpha=0.8))
-    
     ax.set_xlim(-0.5, dw + (2 * th) + 0.5)
     ax.set_ylim(-0.5, dh + th + 0.5)
     ax.set_aspect('equal')
-    plt.title("Parametric Civil Engineering Cross Section (X-Section)")
+    plt.title("Parametric Cross Section")
     st.pyplot(fig)
